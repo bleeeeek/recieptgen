@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Netwitz Attendance</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .attendance-row {
+            transition: background-color 0.2s;
+        }
+        .attendance-row:hover {
+            background-color: #f3f4f6;
+        }
+        .emoji {
+            font-size: 1.5rem;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 20px;
+            width: 90%;
+            max-width: 1200px;
+            border-radius: 8px;
+            position: relative;
+        }
+        .close {
+            position: absolute;
+            right: 20px;
+            top: 10px;
+            font-size: 28px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-indigo-600 mb-2">Netwitz Attendance</h1>
+            <p class="text-gray-600 mb-4">
+                Last Updated: 
+                <span id="lastUpdate" class="font-semibold">
+                    {% if last_update %}
+                        {{ last_update.strftime('%Y-%m-%d %H:%M:%S') }}
+                    {% else %}
+                        Never
+                    {% endif %}
+                </span>
+            </p>
+            
+            <!-- Filters -->
+            <div class="max-w-4xl mx-auto mb-6">
+                <form action="/" method="get" class="flex gap-4 justify-center items-center flex-wrap" id="filterForm">
+                    <div class="flex-1 min-w-[200px]">
+                        <select name="date" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" id="dateFilter">
+                            <option value="all" {% if selected_date == 'all' %}selected{% endif %}>All Dates</option>
+                            {% for date in dates %}
+                            <option value="{{ date }}" {% if date == selected_date %}selected{% endif %}>
+                                {{ date }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="flex-1 min-w-[200px]">
+                        <select name="employee" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" id="employeeFilter" onchange="handleEmployeeChange()">
+                            <option value="all" {% if selected_employee == 'all' %}selected{% endif %}>All Employees</option>
+                            {% for emp in employees %}
+                            <option value="{{ emp }}" {% if emp == selected_employee %}selected{% endif %}>
+                                Employee #{{ emp }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        Filter
+                    </button>
+                </form>
+            </div>
+        </header>
+
+        <!-- Attendance Table -->
+        <div class="bg-white rounded-lg shadow overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee ID</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Punch</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Punch</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Punches</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for record in attendance %}
+                        <tr class="attendance-row">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {{ record.date.strftime('%Y-%m-%d') }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                {{ record.employee_id }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {{ record.first_punch.strftime('%H:%M:%S') }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {{ record.last_punch.strftime('%H:%M:%S') }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {% if record.duration_hours %}
+                                    {{ "%.2f"|format(record.duration_hours) }} hours
+                                {% else %}
+                                    In Progress
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {{ record.total_punches }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-center">
+                                <span class="emoji" title="
+                                    {% if record.status_emoji == '😊' %}Perfect Duration
+                                    {% elif record.status_emoji == '😐' %}Normal Duration
+                                    {% elif record.status_emoji == '😢' %}Less Than Expected
+                                    {% elif record.status_emoji == '😫' %}Overtime
+                                    {% else %}No Checkout
+                                    {% endif %}
+                                ">{{ record.status_emoji }}</span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                <button onclick="showAnalytics('{{ record.employee_id }}')" class="text-indigo-600 hover:text-indigo-900">
+                                    View Analytics
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analytics Modal -->
+    <div id="analyticsModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 class="text-2xl font-bold mb-4">Employee Analytics</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <canvas id="durationChart"></canvas>
+                </div>
+                <div>
+                    <canvas id="punchesChart"></canvas>
+                </div>
+                <div class="col-span-2">
+                    <div class="bg-gray-100 p-4 rounded-lg">
+                        <h3 class="text-xl font-semibold mb-2">Summary</h3>
+                        <div id="analyticsSummary" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <!-- Summary stats will be inserted here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-refresh the data every minute
+        setInterval(() => {
+            fetch('/api/attendance')
+                .then(response => response.json())
+                .then(data => {
+                    const lastUpdate = new Date(data.last_update);
+                    document.getElementById('lastUpdate').textContent = lastUpdate.toLocaleString();
+                });
+        }, 60000);
+
+        // Analytics Modal Functions
+        function showAnalytics(employeeId) {
+            fetch(`/api/analytics/${employeeId}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('analyticsModal').style.display = 'block';
+                    renderCharts(data);
+                    renderSummary(data);
+                });
+        }
+
+        function closeModal() {
+            document.getElementById('analyticsModal').style.display = 'none';
+        }
+
+        function renderCharts(data) {
+            // Duration Chart
+            new Chart(document.getElementById('durationChart'), {
+                type: 'line',
+                data: {
+                    labels: data.dates,
+                    datasets: [{
+                        label: 'Work Duration (hours)',
+                        data: data.durations,
+                        borderColor: 'rgb(79, 70, 229)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Work Duration Trend'
+                        }
+                    }
+                }
+            });
+
+            // Punches Chart
+            new Chart(document.getElementById('punchesChart'), {
+                type: 'bar',
+                data: {
+                    labels: data.dates,
+                    datasets: [{
+                        label: 'Number of Punches',
+                        data: data.punches,
+                        backgroundColor: 'rgba(79, 70, 229, 0.5)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Daily Punch Count'
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderSummary(data) {
+            const summary = document.getElementById('analyticsSummary');
+            summary.innerHTML = `
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <div class="text-sm text-gray-500">Average Duration</div>
+                    <div class="text-xl font-bold">${data.average_duration.toFixed(2)} hours</div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <div class="text-sm text-gray-500">Average Punches</div>
+                    <div class="text-xl font-bold">${data.average_punches.toFixed(1)}</div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <div class="text-sm text-gray-500">Overall Status</div>
+                    <div class="text-xl font-bold">${data.overall_status}</div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <div class="text-sm text-gray-500">Total Days</div>
+                    <div class="text-xl font-bold">${data.total_days}</div>
+                </div>
+            `;
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('analyticsModal')) {
+                closeModal();
+            }
+        }
+
+        // Add this function to handle employee filter changes
+        function handleEmployeeChange() {
+            const employeeFilter = document.getElementById('employeeFilter');
+            const dateFilter = document.getElementById('dateFilter');
+            const filterForm = document.getElementById('filterForm');
+            
+            // If an employee is selected, set date to 'all' and submit the form
+            if (employeeFilter.value !== 'all') {
+                dateFilter.value = 'all';
+                filterForm.submit();
+            }
+        }
+    </script>
+</body>
+</html> 
